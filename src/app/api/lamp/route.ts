@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { globalLampState, LampState } from "@/lib/store";
+import { globalDevicesState, LampState } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  // Check auto-off timer
-  if (globalLampState.autoOffTime && Date.now() >= globalLampState.autoOffTime) {
-    globalLampState.power = false;
-    globalLampState.autoOffTime = null;
-    globalLampState.lastUpdated = Date.now();
+  if (globalDevicesState.lamp.autoOffTime && Date.now() >= globalDevicesState.lamp.autoOffTime) {
+    globalDevicesState.lamp.power = false;
+    globalDevicesState.lamp.autoOffTime = null;
+    globalDevicesState.lamp.lastUpdated = Date.now();
   }
 
-  return NextResponse.json(globalLampState, {
+  return NextResponse.json(globalDevicesState.lamp, {
     headers: {
       "Cache-Control": "no-store, max-age=0",
       "Access-Control-Allow-Origin": "*",
@@ -24,29 +23,29 @@ export async function POST(request: Request) {
     const body = (await request.json()) as Partial<LampState>;
 
     if (typeof body.power === "boolean") {
-      globalLampState.power = body.power;
+      globalDevicesState.lamp.power = body.power;
     }
     if (typeof body.brightness === "number") {
-      globalLampState.brightness = Math.min(100, Math.max(0, Math.round(body.brightness)));
+      globalDevicesState.lamp.brightness = Math.min(100, Math.max(0, Math.round(body.brightness)));
     }
     if (typeof body.color === "string") {
-      globalLampState.color = body.color;
+      globalDevicesState.lamp.color = body.color;
     }
     if (body.mode && ["solid", "breathe", "strobe", "rainbow"].includes(body.mode)) {
-      globalLampState.mode = body.mode;
+      globalDevicesState.lamp.mode = body.mode;
     }
     if (typeof body.speed === "number") {
-      globalLampState.speed = Math.min(10, Math.max(1, body.speed));
+      globalDevicesState.lamp.speed = Math.min(10, Math.max(1, body.speed));
     }
     if (body.autoOffTime !== undefined) {
-      globalLampState.autoOffTime = body.autoOffTime;
+      globalDevicesState.lamp.autoOffTime = body.autoOffTime;
     }
 
-    globalLampState.lastUpdated = Date.now();
+    globalDevicesState.lamp.lastUpdated = Date.now();
 
     return NextResponse.json({
       success: true,
-      state: globalLampState,
+      state: globalDevicesState.lamp,
     }, {
       headers: {
         "Access-Control-Allow-Origin": "*",
