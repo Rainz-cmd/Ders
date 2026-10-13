@@ -40,6 +40,7 @@ import { UsbSerialModal } from "@/components/UsbSerialModal";
 import { DemoModal } from "@/components/DemoModal";
 import { VoiceAssistant } from "@/components/VoiceAssistant";
 import { AllDevicesState, LampState, FanState, LockState, RgbState, IrrigationState } from "@/lib/store";
+import { mqttManager } from "@/lib/mqttClient";
 
 export default function HomePage() {
   const [activeDevice, setActiveDevice] = useState<"lamp" | "fan" | "lock" | "rgb" | "irrigation" | "guide">("lamp");
@@ -104,6 +105,7 @@ export default function HomePage() {
   const [latencyMs, setLatencyMs] = useState<number>(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [mqttConnected, setMqttConnected] = useState<boolean>(false);
   const [showTimerModal, setShowTimerModal] = useState<boolean>(false);
   const [showCodeModal, setShowCodeModal] = useState<boolean>(false);
   const [showUsbModal, setShowUsbModal] = useState<boolean>(false);
@@ -111,6 +113,28 @@ export default function HomePage() {
   const [vercelUrl, setVercelUrl] = useState<string>("");
 
   const isUpdatingRef = useRef(false);
+
+  // MQTT Connection Lifecycle
+  useEffect(() => {
+    mqttManager.connect(
+      (topic, payload) => {
+        if (topic === "ders/rainz/telemetry") {
+          setState((prev) => ({
+            ...prev,
+            telemetry: {
+              ...prev.telemetry,
+              online: true,
+              ip: payload.ip || prev.telemetry.ip,
+              rssi: payload.rssi || prev.telemetry.rssi,
+            },
+          }));
+        }
+      },
+      (connected) => {
+        setMqttConnected(connected);
+      }
+    );
+  }, []);
 
   const addLog = useCallback(
     (message: string, type: LogEntry["type"] = "info") => {
@@ -177,6 +201,9 @@ export default function HomePage() {
   const pushUpdate = async (updates: Partial<AllDevicesState>) => {
     isUpdatingRef.current = true;
     setState((prev) => ({ ...prev, ...updates }));
+
+    // Send MQTT Pub/Sub message immediately (<10ms latency)
+    mqttManager.publishCommand(updates);
 
     try {
       const res = await fetch("/api/devices", {
@@ -289,6 +316,13 @@ export default function HomePage() {
             <span className="text-neutral-600">|</span>
             <span className="text-neutral-400 hidden md:inline">
               REST: <code className="text-yellow-400 font-mono">/api/devices</code>
+            </span>
+            <span className="text-neutral-600 hidden lg:inline">|</span>
+            <span className="hidden lg:flex items-center space-x-1.5 text-xs">
+              <span className={`w-2 h-2 rounded-full ${mqttConnected ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"}`} />
+              <span className="font-mono text-neutral-300">
+                MQTT: <b className={mqttConnected ? "text-emerald-400" : "text-neutral-400"}>broker.emqx.io</b>
+              </span>
             </span>
           </div>
 
@@ -565,7 +599,11 @@ export default function HomePage() {
       )}
 
       {showCodeModal && (
-        <EspCodeModal onClose={() => setShowCodeModal(false)} vercelUrl={vercelUrl} />
+        <EspCodeModal
+          onClose={() => setShowCodeModal(false)}
+          vercelUrl={vercelUrl}
+          activeDevice={activeDevice}
+        />
       )}
 
       {showUsbModal && <UsbSerialModal onClose={() => setShowUsbModal(false)} />}
