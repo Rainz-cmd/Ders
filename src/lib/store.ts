@@ -30,7 +30,7 @@ export interface RgbState {
   power: boolean;
   color: string; // Hex color
   brightness: number; // 0 - 100
-  effect: "solid" | "rainbow" | "fireplace" | "cyberwave";
+  effect: "solid" | "rainbow" | "fireplace" | "cyberwave" | "police";
   speed: number; // 1 - 10
   lastUpdated: number;
 }
