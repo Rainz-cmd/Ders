@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import confetti from "canvas-confetti";
 import {
   Volume2,
   VolumeX,
@@ -158,12 +157,15 @@ export default function HomePage() {
     );
 
     if (newPower) {
-      confetti({
-        particleCount: 40,
-        spread: 60,
-        origin: { y: 0.7 },
-        colors: ["#facc15", "#eab308", "#fbbf24"],
-      });
+      import("canvas-confetti").then((module) => {
+        const confetti = module.default;
+        confetti({
+          particleCount: 40,
+          spread: 60,
+          origin: { y: 0.7 },
+          colors: ["#facc15", "#eab308", "#fbbf24"],
+        });
+      }).catch(() => {});
     }
   };
 
