@@ -3,8 +3,8 @@ export interface LampState {
   brightness: number; // 0 - 100
   color: string; // Hex color e.g. #ffb703
   mode: "solid" | "breathe" | "strobe" | "rainbow";
-  speed: number; // effect speed 1-10
-  autoOffTime: number | null; // timestamp (ms) or null
+  speed: number;
+  autoOffTime: number | null;
   lastUpdated: number;
 }
 
@@ -12,18 +12,42 @@ export interface FanState {
   power: boolean;
   speed: number; // 0 - 100%
   mode: "manual" | "auto" | "eco";
-  targetTemp: number; // e.g. 25°C
-  currentTemp: number; // Simulated or sensor reading
+  targetTemp: number; // e.g. 26°C
+  currentTemp: number; // DHT11 sensor value
   oscillation: boolean;
   lastUpdated: number;
 }
 
 export interface LockState {
   locked: boolean;
-  angle: number; // 0 (unlocked) to 90/180 (locked)
-  autoLockSeconds: number; // 0 disabled, 5, 10, 30s
-  alarm: boolean; // Tamper / unauthorized alarm
+  angle: number; // 0 to 180 deg
+  autoLockSeconds: number; // 0, 5, 10, 30s
+  alarm: boolean;
   lastUpdated: number;
+}
+
+export interface RgbState {
+  power: boolean;
+  color: string; // Hex color
+  brightness: number; // 0 - 100
+  effect: "solid" | "rainbow" | "fireplace" | "cyberwave";
+  speed: number; // 1 - 10
+  lastUpdated: number;
+}
+
+export interface IrrigationState {
+  pump: boolean; // Water pump active
+  soilMoisture: number; // 0 - 100%
+  autoWatering: boolean;
+  threshold: number; // Sulanma eşiği örn: %35
+  waterTankLevel: number; // 0 - 100%
+  lastUpdated: number;
+}
+
+export interface AutomationsState {
+  tempAutoFan: boolean; // Sıcaklık > 27°C ise fanı çalıştır
+  soilAutoPump: boolean; // Nem < %35 ise pompayı çalıştır
+  nightMode: boolean; // Gece modu
 }
 
 export interface DeviceTelemetry {
@@ -39,10 +63,12 @@ export interface AllDevicesState {
   lamp: LampState;
   fan: FanState;
   lock: LockState;
+  rgb: RgbState;
+  irrigation: IrrigationState;
+  automations: AutomationsState;
   telemetry: DeviceTelemetry;
 }
 
-// In-memory state for serverless functions
 export const globalDevicesState: AllDevicesState = {
   lamp: {
     power: false,
@@ -69,16 +95,36 @@ export const globalDevicesState: AllDevicesState = {
     alarm: false,
     lastUpdated: Date.now(),
   },
+  rgb: {
+    power: false,
+    color: "#8b5cf6",
+    brightness: 80,
+    effect: "rainbow",
+    speed: 5,
+    lastUpdated: Date.now(),
+  },
+  irrigation: {
+    pump: false,
+    soilMoisture: 42,
+    autoWatering: true,
+    threshold: 35,
+    waterTankLevel: 85,
+    lastUpdated: Date.now(),
+  },
+  automations: {
+    tempAutoFan: true,
+    soilAutoPump: true,
+    nightMode: false,
+  },
   telemetry: {
     online: false,
     lastSeen: 0,
     ip: "N/A",
     rssi: 0,
-    deviceType: "ESP32 / Deneyap",
+    deviceType: "ESP32 / Deneyap (5 Cihaz)",
     uptimeSeconds: 0,
   },
 };
 
-// Aliases for backwards compatibility with existing /api/lamp
 export const globalLampState = globalDevicesState.lamp;
 export const globalTelemetry = globalDevicesState.telemetry;

@@ -13,6 +13,10 @@ import {
   Lightbulb,
   Lock as LockIcon,
   BookOpen,
+  Sparkles,
+  Droplets,
+  Usb,
+  Play,
 } from "lucide-react";
 import { LampVisualizer } from "@/components/LampVisualizer";
 import { PowerToggle } from "@/components/PowerToggle";
@@ -23,15 +27,22 @@ import { FanVisualizer } from "@/components/FanVisualizer";
 import { FanControls } from "@/components/FanControls";
 import { LockVisualizer } from "@/components/LockVisualizer";
 import { LockControls } from "@/components/LockControls";
+import { RgbControls } from "@/components/RgbControls";
+import { IrrigationControls } from "@/components/IrrigationControls";
+import { TelemetryGauges } from "@/components/TelemetryGauges";
+import { AutomationsCard } from "@/components/AutomationsCard";
 import { GuideSection } from "@/components/GuideSection";
 import { EspStatusCard } from "@/components/EspStatusCard";
 import { EventLogs, LogEntry } from "@/components/EventLogs";
 import { TimerModal } from "@/components/TimerModal";
 import { EspCodeModal } from "@/components/EspCodeModal";
-import { AllDevicesState, LampState, FanState, LockState, DeviceTelemetry } from "@/lib/store";
+import { UsbSerialModal } from "@/components/UsbSerialModal";
+import { DemoModal } from "@/components/DemoModal";
+import { VoiceAssistant } from "@/components/VoiceAssistant";
+import { AllDevicesState, LampState, FanState, LockState, RgbState, IrrigationState } from "@/lib/store";
 
 export default function HomePage() {
-  const [activeDevice, setActiveDevice] = useState<"lamp" | "fan" | "lock" | "guide">("lamp");
+  const [activeDevice, setActiveDevice] = useState<"lamp" | "fan" | "lock" | "rgb" | "irrigation" | "guide">("lamp");
 
   const [state, setState] = useState<AllDevicesState>({
     lamp: {
@@ -59,12 +70,33 @@ export default function HomePage() {
       alarm: false,
       lastUpdated: Date.now(),
     },
+    rgb: {
+      power: false,
+      color: "#8b5cf6",
+      brightness: 80,
+      effect: "rainbow",
+      speed: 5,
+      lastUpdated: Date.now(),
+    },
+    irrigation: {
+      pump: false,
+      soilMoisture: 42,
+      autoWatering: true,
+      threshold: 35,
+      waterTankLevel: 85,
+      lastUpdated: Date.now(),
+    },
+    automations: {
+      tempAutoFan: true,
+      soilAutoPump: true,
+      nightMode: false,
+    },
     telemetry: {
       online: false,
       lastSeen: 0,
       ip: "192.168.1.X",
       rssi: 0,
-      deviceType: "ESP32 / Deneyap",
+      deviceType: "ESP32 / Deneyap (5 Cihaz)",
       uptimeSeconds: 0,
     },
   });
@@ -74,11 +106,12 @@ export default function HomePage() {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [showTimerModal, setShowTimerModal] = useState<boolean>(false);
   const [showCodeModal, setShowCodeModal] = useState<boolean>(false);
+  const [showUsbModal, setShowUsbModal] = useState<boolean>(false);
+  const [showDemoModal, setShowDemoModal] = useState<boolean>(false);
   const [vercelUrl, setVercelUrl] = useState<string>("");
 
   const isUpdatingRef = useRef(false);
 
-  // Helper to add log entries
   const addLog = useCallback(
     (message: string, type: LogEntry["type"] = "info") => {
       const now = new Date();
@@ -100,7 +133,6 @@ export default function HomePage() {
     }
   }, []);
 
-  // Optimized Unified Device Synchronization
   const syncDevices = useCallback(async () => {
     if (isUpdatingRef.current) return;
     try {
@@ -119,7 +151,10 @@ export default function HomePage() {
             addLog(`Fan: ${data.fan.power ? "ÇALIŞIYOR" : "DURDU"}`, data.fan.power ? "success" : "warn");
           }
           if (prev.lock.locked !== data.lock.locked) {
-            addLog(`Kapı Kilidi: ${data.lock.locked ? "KİLİTLENDİ" : "AÇILDI"}`, data.lock.locked ? "warn" : "success");
+            addLog(`Kilit: ${data.lock.locked ? "KİLİTLENDİ" : "AÇILDI"}`, data.lock.locked ? "warn" : "success");
+          }
+          if (prev.irrigation.pump !== data.irrigation.pump) {
+            addLog(`Su Pompası: ${data.irrigation.pump ? "AKTİF" : "KAPALI"}`, data.irrigation.pump ? "success" : "warn");
           }
           return data;
         });
@@ -127,13 +162,11 @@ export default function HomePage() {
     } catch {}
   }, [addLog]);
 
-  // Background polling with tab-visibility optimization
   useEffect(() => {
     syncDevices();
-    addLog("Sistem aktif. 3 Cihaz ve Donanım Telemetrisi hazır.", "info");
+    addLog("Platform aktif. 5 Cihaz, Web Serial USB ve Ses Motoru hazır.", "info");
 
     const interval = setInterval(() => {
-      // Don't poll aggressively if user switched tab
       if (typeof document !== "undefined" && document.hidden) return;
       syncDevices();
     }, 2000);
@@ -141,7 +174,6 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, [syncDevices, addLog]);
 
-  // Unified Push Update
   const pushUpdate = async (updates: Partial<AllDevicesState>) => {
     isUpdatingRef.current = true;
     setState((prev) => ({ ...prev, ...updates }));
@@ -157,7 +189,7 @@ export default function HomePage() {
         if (data.state) setState(data.state);
       }
     } catch {
-      addLog("Buluta bağlanırken hata oluştu!", "error");
+      addLog("Bulut sunucusuna ulaşılamadı!", "error");
     } finally {
       setTimeout(() => {
         isUpdatingRef.current = false;
@@ -165,41 +197,9 @@ export default function HomePage() {
     }
   };
 
-  // Lamp handlers
-  const handleLampUpdate = (lampUpdates: Partial<LampState>) => {
-    pushUpdate({ lamp: { ...state.lamp, ...lampUpdates } });
-  };
-
-  const handleLampPowerToggle = (newPower: boolean) => {
-    handleLampUpdate({ power: newPower });
-    addLog(`Lamba ${newPower ? "AÇILDI" : "KAPATILDI"}`, newPower ? "success" : "warn");
-    if (newPower) {
-      import("canvas-confetti")
-        .then((module) => {
-          module.default({
-            particleCount: 40,
-            spread: 60,
-            origin: { y: 0.7 },
-            colors: ["#facc15", "#eab308", "#fbbf24"],
-          });
-        })
-        .catch(() => {});
-    }
-  };
-
-  // Fan handlers
-  const handleFanUpdate = (fanUpdates: Partial<FanState>) => {
-    pushUpdate({ fan: { ...state.fan, ...fanUpdates } });
-  };
-
-  // Lock handlers
-  const handleLockUpdate = (lockUpdates: Partial<LockState>) => {
-    pushUpdate({ lock: { ...state.lock, ...lockUpdates } });
-  };
-
   return (
     <main className="min-h-screen text-white pb-20 selection:bg-yellow-500/30">
-      {/* Top Navigation */}
+      {/* Top Bar */}
       <header className="sticky top-0 z-40 w-full border-b border-neutral-800/80 bg-neutral-950/80 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -209,19 +209,41 @@ export default function HomePage() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-base md:text-lg tracking-tight bg-gradient-to-r from-yellow-300 via-amber-200 to-white bg-clip-text text-transparent">
-                  ESP32 IOT OTOMASYON
+                  ESP32 IOT 5X SUITE
                 </span>
                 <span className="px-2 py-0.5 text-[10px] font-mono font-semibold uppercase rounded-md bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
                   DERS PROJESİ
                 </span>
               </div>
               <p className="text-[11px] text-neutral-400 hidden sm:block">
-                Lamba + Fan + Akıllı Kilit Bulut Paneli
+                Lamba + Fan + Kilit + RGB + Sulama + USB Serial
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
+            {/* Voice Assistant */}
+            <VoiceAssistant onUpdate={pushUpdate} onLog={addLog} />
+
+            {/* Hoca Demo Modu */}
+            <button
+              onClick={() => setShowDemoModal(true)}
+              className="px-3 py-2 rounded-xl bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 font-bold text-xs flex items-center space-x-1.5 transition-all shadow-sm"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span className="hidden sm:inline">Hoca Demo Modu</span>
+            </button>
+
+            {/* USB Serial Button */}
+            <button
+              onClick={() => setShowUsbModal(true)}
+              className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-bold text-xs flex items-center space-x-1.5 transition-all shadow-sm"
+            >
+              <Usb className="w-4 h-4" />
+              <span className="hidden sm:inline">USB Bağlan</span>
+            </button>
+
+            {/* Sound Toggle */}
             <button
               onClick={() => setSoundEnabled(!soundEnabled)}
               title={soundEnabled ? "Sesi Kapat" : "Sesi Aç"}
@@ -234,12 +256,13 @@ export default function HomePage() {
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
 
+            {/* Arduino Code */}
             <button
               onClick={() => setShowCodeModal(true)}
-              className="px-3 py-2 rounded-xl bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-400 hover:to-amber-400 text-neutral-950 font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-yellow-500/20 transition-all cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-400 text-neutral-950 font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-yellow-500/20 transition-all cursor-pointer"
             >
               <Code2 className="w-4 h-4" />
-              <span>Arduino Kodu</span>
+              <span className="hidden md:inline">Arduino Kodu</span>
             </button>
           </div>
         </div>
@@ -259,7 +282,7 @@ export default function HomePage() {
               <span className="font-semibold">
                 ESP32 / Deneyap:{" "}
                 <span className={state.telemetry.online ? "text-emerald-400" : "text-red-400"}>
-                  {state.telemetry.online ? "Bağlı & Aktif" : "Bağlantı Bekleniyor (Offline)"}
+                  {state.telemetry.online ? "Bulut Bağlantısı Aktif" : "Bulut Bekleniyor / USB Modu"}
                 </span>
               </span>
             </div>
@@ -282,36 +305,50 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Device Switcher Navigation Tabs */}
+        {/* 5-Device Navigation Tabs */}
         <div className="flex flex-wrap gap-2.5 mb-8 p-1.5 bg-neutral-950/70 rounded-2xl border border-neutral-800">
           {[
             {
               id: "lamp" as const,
-              label: "1. Akıllı Lamba & Röle",
+              label: "1. Lamba & Röle",
               icon: Lightbulb,
               badge: state.lamp.power ? "AÇIK" : "KAPALI",
               badgeColor: state.lamp.power ? "bg-yellow-500/20 text-yellow-300" : "bg-neutral-800 text-neutral-500",
             },
             {
               id: "fan" as const,
-              label: "2. Akıllı Fan / Havalandırma",
+              label: "2. Fan & Soğutma",
               icon: FanIcon,
               badge: state.fan.power ? `%${state.fan.speed}` : "KAPALI",
               badgeColor: state.fan.power ? "bg-cyan-500/20 text-cyan-300" : "bg-neutral-800 text-neutral-500",
             },
             {
               id: "lock" as const,
-              label: "3. Güvenlik Kilidi (Servo)",
+              label: "3. Kapı Kilidi (Servo)",
               icon: LockIcon,
               badge: state.lock.locked ? "KİLİTLİ" : "AÇIK",
               badgeColor: state.lock.locked ? "bg-red-500/20 text-red-300" : "bg-emerald-500/20 text-emerald-300",
             },
             {
+              id: "rgb" as const,
+              label: "4. RGB NeoPixel",
+              icon: Sparkles,
+              badge: state.rgb.power ? "AKTİF" : "KAPALI",
+              badgeColor: state.rgb.power ? "bg-purple-500/20 text-purple-300" : "bg-neutral-800 text-neutral-500",
+            },
+            {
+              id: "irrigation" as const,
+              label: "5. Akıllı Sulama",
+              icon: Droplets,
+              badge: state.irrigation.pump ? "POMPALIYOR" : `Nem: %${state.irrigation.soilMoisture}`,
+              badgeColor: state.irrigation.pump ? "bg-blue-500/20 text-blue-300" : "bg-neutral-800 text-neutral-400",
+            },
+            {
               id: "guide" as const,
-              label: "📖 Nasıl Yapılır? (Rehber)",
+              label: "📖 Kurulum Rehberi",
               icon: BookOpen,
               badge: "DETAYLI",
-              badgeColor: "bg-purple-500/20 text-purple-300",
+              badgeColor: "bg-emerald-500/20 text-emerald-300",
             },
           ].map((item) => {
             const Icon = item.icon;
@@ -320,7 +357,7 @@ export default function HomePage() {
               <button
                 key={item.id}
                 onClick={() => setActiveDevice(item.id)}
-                className={`flex-1 min-w-[200px] p-3 rounded-xl border flex items-center justify-between transition-all ${
+                className={`flex-1 min-w-[170px] p-3 rounded-xl border flex items-center justify-between transition-all ${
                   isActive
                     ? "bg-neutral-800 border-neutral-600 shadow-md scale-[1.01]"
                     : "bg-neutral-900/50 border-transparent text-neutral-400 hover:text-white hover:bg-neutral-800/40"
@@ -338,7 +375,7 @@ export default function HomePage() {
           })}
         </div>
 
-        {/* Tab 1: LAMP DASHBOARD */}
+        {/* Tab 1: LAMP */}
         {activeDevice === "lamp" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5 space-y-6">
@@ -350,7 +387,13 @@ export default function HomePage() {
                   mode={state.lamp.mode}
                 />
                 <div className="mt-8 mb-4 w-full flex justify-center">
-                  <PowerToggle power={state.lamp.power} onToggle={handleLampPowerToggle} />
+                  <PowerToggle
+                    power={state.lamp.power}
+                    onToggle={(newPower) => {
+                      pushUpdate({ lamp: { ...state.lamp, power: newPower } });
+                      addLog(`Lamba ${newPower ? "AÇILDI" : "KAPATILDI"}`, newPower ? "success" : "warn");
+                    }}
+                  />
                 </div>
               </div>
 
@@ -374,20 +417,22 @@ export default function HomePage() {
               <BrightnessSlider
                 brightness={state.lamp.brightness}
                 power={state.lamp.power}
-                onChange={(brightness) => handleLampUpdate({ brightness })}
+                onChange={(brightness) => pushUpdate({ lamp: { ...state.lamp, brightness } })}
               />
               <ColorPicker
                 color={state.lamp.color}
                 power={state.lamp.power}
-                onChange={(color) => handleLampUpdate({ color })}
+                onChange={(color) => pushUpdate({ lamp: { ...state.lamp, color } })}
               />
               <ModeSelector
                 mode={state.lamp.mode}
                 speed={state.lamp.speed}
                 power={state.lamp.power}
-                onModeChange={(mode) => handleLampUpdate({ mode })}
-                onSpeedChange={(speed) => handleLampUpdate({ speed })}
+                onModeChange={(mode) => pushUpdate({ lamp: { ...state.lamp, mode } })}
+                onSpeedChange={(speed) => pushUpdate({ lamp: { ...state.lamp, speed } })}
               />
+              <TelemetryGauges state={state} latencyMs={latencyMs} />
+              <AutomationsCard automations={state.automations} onUpdate={pushUpdate} />
               <EspStatusCard
                 telemetry={state.telemetry}
                 latencyMs={latencyMs}
@@ -399,7 +444,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Tab 2: FAN DASHBOARD */}
+        {/* Tab 2: FAN */}
         {activeDevice === "fan" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5 space-y-6">
@@ -413,7 +458,12 @@ export default function HomePage() {
             </div>
 
             <div className="lg:col-span-7 space-y-6">
-              <FanControls fan={state.fan} onUpdate={handleFanUpdate} />
+              <FanControls
+                fan={state.fan}
+                onUpdate={(fanUpdates) => pushUpdate({ fan: { ...state.fan, ...fanUpdates } })}
+              />
+              <TelemetryGauges state={state} latencyMs={latencyMs} />
+              <AutomationsCard automations={state.automations} onUpdate={pushUpdate} />
               <EspStatusCard
                 telemetry={state.telemetry}
                 latencyMs={latencyMs}
@@ -425,7 +475,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Tab 3: LOCK DASHBOARD */}
+        {/* Tab 3: LOCK */}
         {activeDevice === "lock" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5 space-y-6">
@@ -439,7 +489,12 @@ export default function HomePage() {
             </div>
 
             <div className="lg:col-span-7 space-y-6">
-              <LockControls lock={state.lock} onUpdate={handleLockUpdate} />
+              <LockControls
+                lock={state.lock}
+                onUpdate={(lockUpdates) => pushUpdate({ lock: { ...state.lock, ...lockUpdates } })}
+              />
+              <TelemetryGauges state={state} latencyMs={latencyMs} />
+              <AutomationsCard automations={state.automations} onUpdate={pushUpdate} />
               <EspStatusCard
                 telemetry={state.telemetry}
                 latencyMs={latencyMs}
@@ -451,7 +506,50 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Tab 4: GUIDE / TUTORIAL */}
+        {/* Tab 4: RGB NEOPIXEL */}
+        {activeDevice === "rgb" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            <div className="lg:col-span-12 space-y-6">
+              <RgbControls
+                rgb={state.rgb}
+                onUpdate={(rgbUpdates) => pushUpdate({ rgb: { ...state.rgb, ...rgbUpdates } })}
+              />
+              <TelemetryGauges state={state} latencyMs={latencyMs} />
+              <EspStatusCard
+                telemetry={state.telemetry}
+                latencyMs={latencyMs}
+                onRefresh={syncDevices}
+                onOpenCode={() => setShowCodeModal(true)}
+              />
+              <EventLogs logs={logs} onClear={() => setLogs([])} />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 5: IRRIGATION */}
+        {activeDevice === "irrigation" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            <div className="lg:col-span-12 space-y-6">
+              <IrrigationControls
+                irrigation={state.irrigation}
+                onUpdate={(irrigationUpdates) =>
+                  pushUpdate({ irrigation: { ...state.irrigation, ...irrigationUpdates } })
+                }
+              />
+              <TelemetryGauges state={state} latencyMs={latencyMs} />
+              <AutomationsCard automations={state.automations} onUpdate={pushUpdate} />
+              <EspStatusCard
+                telemetry={state.telemetry}
+                latencyMs={latencyMs}
+                onRefresh={syncDevices}
+                onOpenCode={() => setShowCodeModal(true)}
+              />
+              <EventLogs logs={logs} onClear={() => setLogs([])} />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 6: GUIDE */}
         {activeDevice === "guide" && <GuideSection />}
       </div>
 
@@ -459,16 +557,21 @@ export default function HomePage() {
       {showTimerModal && (
         <TimerModal
           autoOffTime={state.lamp.autoOffTime}
-          onSetTimer={(timestamp) => handleLampUpdate({ autoOffTime: timestamp })}
+          onSetTimer={(timestamp) =>
+            pushUpdate({ lamp: { ...state.lamp, autoOffTime: timestamp } })
+          }
           onClose={() => setShowTimerModal(false)}
         />
       )}
 
       {showCodeModal && (
-        <EspCodeModal
-          onClose={() => setShowCodeModal(false)}
-          vercelUrl={vercelUrl}
-        />
+        <EspCodeModal onClose={() => setShowCodeModal(false)} vercelUrl={vercelUrl} />
+      )}
+
+      {showUsbModal && <UsbSerialModal onClose={() => setShowUsbModal(false)} />}
+
+      {showDemoModal && (
+        <DemoModal onUpdate={pushUpdate} onClose={() => setShowDemoModal(false)} />
       )}
     </main>
   );

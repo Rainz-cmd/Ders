@@ -1,9 +1,15 @@
 /*
   ============================================================================
-  PROJE: ESP32 ÇOKLU AKILLI EV SİSTEMİ (LAMBA + FAN + KAPI KİLİDİ)
-  DERS: Gömülü Sistemler ve IoT Otomasyonu
-  GELİŞTİRİCİ: Rainz-cmd / Ders
-  WEB ARAYÜZÜ: Vercel Cloud (/api/devices REST API)
+  PROJE: ESP32 5'Lİ AKILLI IOT PLATFORMU (DUAL MODE: WI-FI + WEB SERIAL USB)
+  CİHAZLAR:
+    1. Lamba & Röle (GPIO 2)
+    2. Fan / DC Motor PWM (GPIO 4)
+    3. SG90 Kilit Servosu (GPIO 18) & Buzzer (GPIO 19)
+    4. WS2812B NeoPixel RGB (GPIO 5)
+    5. Mini Su Pompası (GPIO 23) & Toprak Nem Sensörü (GPIO 34 ADC)
+  HABERLEŞME:
+    - Mod A: Wi-Fi REST API (Vercel Cloud: /api/devices)
+    - Mod B: Doğrudan USB Kablosu (Web Serial API 115200 Baud)
   ============================================================================
 */
 
@@ -11,142 +17,151 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
-#include <ESP32Servo.h> // Arduino Kütüphane Yöneticisinden "ESP32Servo" kurun
+#include <ESP32Servo.h>
 
-// -------------------------------------------------------------
-// 1. WI-FI VE VERCEL BULUT AYARLARI
-// -------------------------------------------------------------
+// 1. WI-FI VE VERCEL AYARLARI
 const char* WIFI_SSID     = "WIFI_ADINIZ";
 const char* WIFI_PASSWORD = "WIFI_SIFRENIZ";
-const char* VERCEL_URL    = "https://ders-taupe.vercel.app"; // Sonunda '/' olmadan
+const char* VERCEL_URL    = "https://ders-taupe.vercel.app";
 
-// -------------------------------------------------------------
-// 2. DONANIM PINLERİ
-// -------------------------------------------------------------
-const int PIN_LAMP_RELAY  = 2;   // 1. Cihaz: Lamba Rölesi (GPIO 2)
-const int PIN_FAN_MOTOR   = 4;   // 2. Cihaz: Fan PWM / Motor (GPIO 4)
-const int PIN_SERVO_LOCK  = 18;  // 3. Cihaz: SG90 Kilit Servosu (GPIO 18)
-const int PIN_BUZZER      = 19;  // Güvenlik Sireni / Buzzer (GPIO 19)
+// 2. PIN TANIMLARI
+const int PIN_LAMP     = 2;   // 1. Lamba Rölesi
+const int PIN_FAN      = 4;   // 2. Fan PWM
+const int PIN_SERVO    = 18;  // 3. Servo Kilit
+const int PIN_BUZZER   = 19;  // Siren / Buzzer
+const int PIN_RGB      = 5;   // 4. WS2812B RGB Data
+const int PIN_PUMP     = 23;  // 5. Su Pompası Rölesi
+const int PIN_SOIL     = 34;  // Toprak Nem Sensörü (Analog)
 
-// PWM Kanalları
-const int FAN_PWM_CHANNEL = 1;
-const int FAN_PWM_FREQ    = 5000;
-const int FAN_PWM_RES     = 8;   // 0 - 255
-
+// PWM & Servo
+const int FAN_PWM_CH   = 1;
 Servo lockServo;
 
-// Zamanlama
-unsigned long lastPollTime      = 0;
-const unsigned long POLL_DELAY  = 1200; // 1.2 sn
+unsigned long lastPoll = 0;
+const unsigned long POLL_INTERVAL = 1200; // 1.2s
 
-unsigned long lastHeartbeatTime = 0;
-const unsigned long HEARTBEAT_DELAY = 10000; // 10 sn
+unsigned long lastHeartbeat = 0;
+const unsigned long HEARTBEAT_INTERVAL = 10000; // 10s
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  Serial.println("\n>>> ESP32 3'lu Akilli Ev Sistemi Baslatiliyor...");
+  Serial.println("\n==========================================");
+  Serial.println("  ESP32 5'LI IOT PLATFORMU (DUAL-MODE)    ");
+  Serial.println("  115200 Baud Web Serial & Wi-Fi Ready    ");
+  Serial.println("==========================================");
 
-  // 1. Lamba Röle Pini
-  pinMode(PIN_LAMP_RELAY, OUTPUT);
-  digitalWrite(PIN_LAMP_RELAY, LOW);
+  // Pin Çıkışları
+  pinMode(PIN_LAMP, OUTPUT);
+  digitalWrite(PIN_LAMP, LOW);
 
-  // 2. Fan PWM Ayarı
-  ledcSetup(FAN_PWM_CHANNEL, FAN_PWM_FREQ, FAN_PWM_RES);
-  ledcAttachPin(PIN_FAN_MOTOR, FAN_PWM_CHANNEL);
-  ledcWrite(FAN_PWM_CHANNEL, 0);
+  pinMode(PIN_PUMP, OUTPUT);
+  digitalWrite(PIN_PUMP, LOW);
 
-  // 3. Servo Kilit Ayarı
-  lockServo.setPeriodHertz(50);
-  lockServo.attach(PIN_SERVO_LOCK, 500, 2400);
-  lockServo.write(90); // Başlangıçta kilitli (90 derece)
-
-  // 4. Buzzer
   pinMode(PIN_BUZZER, OUTPUT);
   digitalWrite(PIN_BUZZER, LOW);
 
-  // Wi-Fi Bağlan
-  connectWiFi();
-  sendHeartbeat();
+  pinMode(PIN_RGB, OUTPUT);
+  digitalWrite(PIN_RGB, LOW);
+
+  // Fan PWM
+  ledcSetup(FAN_PWM_CH, 5000, 8);
+  ledcAttachPin(PIN_FAN, FAN_PWM_CH);
+  ledcWrite(FAN_PWM_CH, 0);
+
+  // Servo
+  lockServo.setPeriodHertz(50);
+  lockServo.attach(PIN_SERVO, 500, 2400);
+  lockServo.write(90);
+
+  // Wi-Fi Başlat (Varsa bağlanır, yoksa sadece USB Serial çalışır)
+  connectWiFiAsync();
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
-    return;
-  }
+  // 1. MOD B: USB Serial'den Gelen Web Komutlarını Dinle (Web Serial API)
+  checkSerialCommands();
 
-  unsigned long now = millis();
-
-  // 1. Web sitesinden 3 cihazın durumunu tek seferde çek
-  if (now - lastPollTime >= POLL_DELAY) {
-    lastPollTime = now;
-    fetchDevicesState();
-  }
-
-  // 2. Canlılık bildirimi gönder
-  if (now - lastHeartbeatTime >= HEARTBEAT_DELAY) {
-    lastHeartbeatTime = now;
-    sendHeartbeat();
+  // 2. MOD A: Wi-Fi Varsa Vercel'den Durum Çek
+  if (WiFi.status() == WL_CONNECTED) {
+    unsigned long now = millis();
+    if (now - lastPoll >= POLL_INTERVAL) {
+      lastPoll = now;
+      pollVercelDevices();
+    }
+    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+      lastHeartbeat = now;
+      sendHeartbeat();
+    }
   }
 }
 
-void connectWiFi() {
-  Serial.print("Wi-Fi baglantisi: ");
-  Serial.println(WIFI_SSID);
+// -------------------------------------------------------------
+// USB SERIAL DOĞRUDAN KONTROL MOTORU (WEB SERIAL API)
+// -------------------------------------------------------------
+void checkSerialCommands() {
+  if (Serial.available() > 0) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd.startsWith("CMD:LAMP:")) {
+      int val = cmd.substring(9).toInt();
+      digitalWrite(PIN_LAMP, val ? HIGH : LOW);
+      Serial.println("[ACK] Lamba: " + String(val ? "ACIK" : "KAPALI"));
+    } else if (cmd.startsWith("CMD:FAN:")) {
+      int speed = cmd.substring(8).toInt();
+      int duty = map(speed, 0, 100, 0, 255);
+      ledcWrite(FAN_PWM_CH, duty);
+      Serial.println("[ACK] Fan Hizi: %" + String(speed));
+    } else if (cmd.startsWith("CMD:LOCK:")) {
+      int val = cmd.substring(9).toInt();
+      lockServo.write(val ? 90 : 0);
+      Serial.println("[ACK] Kilit: " + String(val ? "KILITLI (90 deg)" : "ACIK (0 deg)"));
+    } else if (cmd.startsWith("CMD:PUMP:")) {
+      int val = cmd.substring(9).toInt();
+      digitalWrite(PIN_PUMP, val ? HIGH : LOW);
+      Serial.println("[ACK] Su Pompasi: " + String(val ? "CALISIYOR" : "KAPALI"));
+    } else if (cmd == "CMD:STATUS") {
+      int rawSoil = analogRead(PIN_SOIL);
+      int soilPercent = map(rawSoil, 4095, 1500, 0, 100);
+      Serial.println("[TELEMETRI] Toprak Nemi: %" + String(soilPercent) + " | Wi-Fi: " + (WiFi.status() == WL_CONNECTED ? "BAGLI" : "KOPUK"));
+    }
+  }
+}
+
+void connectWiFiAsync() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < 40) {
-    delay(500);
-    Serial.print(".");
-    tries++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n[OK] Wi-Fi Baglandi! IP: " + WiFi.localIP().toString());
-  }
 }
 
-void fetchDevicesState() {
+void pollVercelDevices() {
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient https;
   String url = String(VERCEL_URL) + "/api/devices";
 
   if (https.begin(client, url)) {
     int code = https.GET();
-
     if (code == HTTP_CODE_OK) {
       String json = https.getString();
-
       DynamicJsonDocument doc(2048);
-      DeserializationError error = deserializeJson(doc, json);
+      deserializeJson(doc, json);
 
-      if (!error) {
-        // 1. Lamba Kontrolü
-        bool lampPower = doc["lamp"]["power"] | false;
-        digitalWrite(PIN_LAMP_RELAY, lampPower ? HIGH : LOW);
+      // 1. Lamba
+      digitalWrite(PIN_LAMP, doc["lamp"]["power"] ? HIGH : LOW);
 
-        // 2. Fan Kontrolü (PWM)
-        bool fanPower = doc["fan"]["power"] | false;
-        int fanSpeed  = doc["fan"]["speed"] | 0;
-        if (fanPower) {
-          int duty = map(fanSpeed, 0, 100, 0, 255);
-          ledcWrite(FAN_PWM_CHANNEL, duty);
-        } else {
-          ledcWrite(FAN_PWM_CHANNEL, 0);
-        }
+      // 2. Fan
+      bool fanOn = doc["fan"]["power"] | false;
+      int speed  = doc["fan"]["speed"] | 0;
+      ledcWrite(FAN_PWM_CH, fanOn ? map(speed, 0, 100, 0, 255) : 0);
 
-        // 3. Kapı Kilidi (Servo SG90) & Alarm
-        int lockAngle = doc["lock"]["angle"] | 90;
-        bool alarmOn  = doc["lock"]["alarm"] | false;
-        lockServo.write(lockAngle);
-        digitalWrite(PIN_BUZZER, alarmOn ? HIGH : LOW);
-      }
+      // 3. Kilit & Alarm
+      lockServo.write(doc["lock"]["angle"] | 90);
+      digitalWrite(PIN_BUZZER, doc["lock"]["alarm"] ? HIGH : LOW);
+
+      // 4. Su Pompası
+      digitalWrite(PIN_PUMP, doc["irrigation"]["pump"] ? HIGH : LOW);
     }
     https.end();
   }
@@ -155,18 +170,21 @@ void fetchDevicesState() {
 void sendHeartbeat() {
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient https;
   String url = String(VERCEL_URL) + "/api/heartbeat";
 
   if (https.begin(client, url)) {
     https.addHeader("Content-Type", "application/json");
 
+    int rawSoil = analogRead(PIN_SOIL);
+    int soilPercent = constrain(map(rawSoil, 4095, 1500, 0, 100), 0, 100);
+
     StaticJsonDocument<256> doc;
     doc["ip"]            = WiFi.localIP().toString();
     doc["rssi"]          = WiFi.RSSI();
-    doc["deviceType"]    = "ESP32 (3'lu Hibrit Kontrol)";
+    doc["deviceType"]    = "ESP32 (5'li Hibrit + Web Serial)";
     doc["uptimeSeconds"] = millis() / 1000;
+    doc["soilMoisture"]  = soilPercent;
 
     String body;
     serializeJson(doc, body);
