@@ -44,6 +44,17 @@ export interface IrrigationState {
   lastUpdated: number;
 }
 
+export interface ThermostatState {
+  currentTemp: number; // e.g. 24.5 °C
+  thresholdTemp: number; // default 25.0 °C
+  redLed: boolean; // true if currentTemp > thresholdTemp
+  blueLed: boolean; // true if currentTemp <= thresholdTemp
+  sensorType: "DHT11" | "NTC" | "LM35";
+  autoMode: boolean;
+  boardType: "deneyap_1a_v2" | "esp32_devkit";
+  lastUpdated: number;
+}
+
 export interface AutomationsState {
   tempAutoFan: boolean; // Sıcaklık > 27°C ise fanı çalıştır
   soilAutoPump: boolean; // Nem < %35 ise pompayı çalıştır
@@ -65,6 +76,7 @@ export interface AllDevicesState {
   lock: LockState;
   rgb: RgbState;
   irrigation: IrrigationState;
+  thermostat: ThermostatState;
   automations: AutomationsState;
   telemetry: DeviceTelemetry;
 }
@@ -111,6 +123,16 @@ export const globalDevicesState: AllDevicesState = {
     waterTankLevel: 85,
     lastUpdated: Date.now(),
   },
+  thermostat: {
+    currentTemp: 24.2,
+    thresholdTemp: 25.0,
+    redLed: false, // 24.2 <= 25.0 -> Mavi LED aktif
+    blueLed: true,
+    sensorType: "DHT11",
+    autoMode: true,
+    boardType: "deneyap_1a_v2",
+    lastUpdated: Date.now(),
+  },
   automations: {
     tempAutoFan: true,
     soilAutoPump: true,
@@ -121,7 +143,7 @@ export const globalDevicesState: AllDevicesState = {
     lastSeen: 0,
     ip: "N/A",
     rssi: 0,
-    deviceType: "ESP32 / Deneyap (5 Cihaz)",
+    deviceType: "Deneyap Kart 1A v2",
     uptimeSeconds: 0,
   },
 };

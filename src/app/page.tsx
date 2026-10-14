@@ -17,6 +17,7 @@ import {
   Droplets,
   Usb,
   Play,
+  Thermometer,
 } from "lucide-react";
 import { LampVisualizer } from "@/components/LampVisualizer";
 import { PowerToggle } from "@/components/PowerToggle";
@@ -29,6 +30,7 @@ import { LockVisualizer } from "@/components/LockVisualizer";
 import { LockControls } from "@/components/LockControls";
 import { RgbControls } from "@/components/RgbControls";
 import { IrrigationControls } from "@/components/IrrigationControls";
+import { ThermostatControls } from "@/components/ThermostatControls";
 import { TelemetryGauges } from "@/components/TelemetryGauges";
 import { AutomationsCard } from "@/components/AutomationsCard";
 import { GuideSection } from "@/components/GuideSection";
@@ -39,11 +41,11 @@ import { EspCodeModal } from "@/components/EspCodeModal";
 import { UsbSerialModal } from "@/components/UsbSerialModal";
 import { DemoModal } from "@/components/DemoModal";
 import { VoiceAssistant } from "@/components/VoiceAssistant";
-import { AllDevicesState, LampState, FanState, LockState, RgbState, IrrigationState } from "@/lib/store";
+import { AllDevicesState, LampState, FanState, LockState, RgbState, IrrigationState, ThermostatState } from "@/lib/store";
 import { mqttManager } from "@/lib/mqttClient";
 
 export default function HomePage() {
-  const [activeDevice, setActiveDevice] = useState<"lamp" | "fan" | "lock" | "rgb" | "irrigation" | "guide">("lamp");
+  const [activeDevice, setActiveDevice] = useState<"lamp" | "fan" | "lock" | "rgb" | "irrigation" | "thermostat" | "guide">("lamp");
 
   const [state, setState] = useState<AllDevicesState>({
     lamp: {
@@ -87,6 +89,16 @@ export default function HomePage() {
       waterTankLevel: 85,
       lastUpdated: Date.now(),
     },
+    thermostat: {
+      currentTemp: 24.2,
+      thresholdTemp: 25.0,
+      redLed: false,
+      blueLed: true,
+      sensorType: "DHT11",
+      autoMode: true,
+      boardType: "deneyap_1a_v2",
+      lastUpdated: Date.now(),
+    },
     automations: {
       tempAutoFan: true,
       soilAutoPump: true,
@@ -97,7 +109,7 @@ export default function HomePage() {
       lastSeen: 0,
       ip: "192.168.1.X",
       rssi: 0,
-      deviceType: "ESP32 / Deneyap (5 Cihaz)",
+      deviceType: "Deneyap 1A v2 / ESP32 (6 Cihaz)",
       uptimeSeconds: 0,
     },
   });
@@ -180,6 +192,9 @@ export default function HomePage() {
           if (prev.irrigation.pump !== data.irrigation.pump) {
             addLog(`Su Pompası: ${data.irrigation.pump ? "AKTİF" : "KAPALI"}`, data.irrigation.pump ? "success" : "warn");
           }
+          if (prev.thermostat && data.thermostat && (prev.thermostat.redLed !== data.thermostat.redLed || prev.thermostat.blueLed !== data.thermostat.blueLed)) {
+            addLog(`Sıcaklık LED: ${data.thermostat.currentTemp}°C -> ${data.thermostat.redLed ? "KIRMIZI LED DEVREDE" : "MAVİ LED DEVREDE"}`, data.thermostat.redLed ? "warn" : "info");
+          }
           return data;
         });
       }
@@ -188,7 +203,7 @@ export default function HomePage() {
 
   useEffect(() => {
     syncDevices();
-    addLog("Platform aktif. 5 Cihaz, Web Serial USB ve Ses Motoru hazır.", "info");
+    addLog("Platform aktif. 6 Cihaz (25°C Sıcaklık LED Dahil), Web Serial USB ve MQTT hazır.", "info");
 
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
@@ -376,6 +391,13 @@ export default function HomePage() {
               icon: Droplets,
               badge: state.irrigation.pump ? "POMPALIYOR" : `Nem: %${state.irrigation.soilMoisture}`,
               badgeColor: state.irrigation.pump ? "bg-blue-500/20 text-blue-300" : "bg-neutral-800 text-neutral-400",
+            },
+            {
+              id: "thermostat" as const,
+              label: "6. Sıcaklık & 25°C LED",
+              icon: Thermometer,
+              badge: `${state.thermostat.currentTemp.toFixed(1)}°C (${state.thermostat.redLed ? "KIRMIZI" : "MAVİ"})`,
+              badgeColor: state.thermostat.redLed ? "bg-red-500/20 text-red-300" : "bg-cyan-500/20 text-cyan-300",
             },
             {
               id: "guide" as const,
@@ -583,7 +605,30 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Tab 6: GUIDE */}
+        {/* Tab 6: THERMOSTAT (25°C Red/Blue LED Projesi) */}
+        {activeDevice === "thermostat" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            <div className="lg:col-span-12 space-y-6">
+              <ThermostatControls
+                thermostat={state.thermostat}
+                onUpdate={(thermoUpdates) =>
+                  pushUpdate({ thermostat: { ...state.thermostat, ...thermoUpdates } })
+                }
+              />
+              <TelemetryGauges state={state} latencyMs={latencyMs} />
+              <AutomationsCard automations={state.automations} onUpdate={pushUpdate} />
+              <EspStatusCard
+                telemetry={state.telemetry}
+                latencyMs={latencyMs}
+                onRefresh={syncDevices}
+                onOpenCode={() => setShowCodeModal(true)}
+              />
+              <EventLogs logs={logs} onClear={() => setLogs([])} />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 7: GUIDE */}
         {activeDevice === "guide" && <GuideSection />}
       </div>
 

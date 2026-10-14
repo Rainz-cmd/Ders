@@ -1,12 +1,27 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Copy, Check, Code, Cpu, BookOpen, Wifi, Sparkles, Fan, Lock, Droplets, Lightbulb, Radio } from "lucide-react";
+import {
+  X,
+  Copy,
+  Check,
+  Code,
+  Cpu,
+  BookOpen,
+  Wifi,
+  Sparkles,
+  Fan,
+  Lock,
+  Droplets,
+  Lightbulb,
+  Radio,
+  Thermometer,
+} from "lucide-react";
 
 interface EspCodeModalProps {
   onClose: () => void;
   vercelUrl: string;
-  activeDevice?: "lamp" | "fan" | "lock" | "rgb" | "irrigation" | "guide";
+  activeDevice?: "lamp" | "fan" | "lock" | "rgb" | "irrigation" | "thermostat" | "guide";
 }
 
 export const EspCodeModal: React.FC<EspCodeModalProps> = ({
@@ -14,13 +29,13 @@ export const EspCodeModal: React.FC<EspCodeModalProps> = ({
   vercelUrl,
   activeDevice = "lamp",
 }) => {
-  const [board, setBoard] = useState<"esp32" | "deneyap">("esp32");
-  
+  const [board, setBoard] = useState<"esp32" | "deneyap_1a_v2">("deneyap_1a_v2");
+
   // Default code type to whichever device is active on the dashboard!
   const [codeType, setCodeType] = useState<string>(
     activeDevice === "guide" ? "lamp" : activeDevice
   );
-  
+
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -195,11 +210,14 @@ void loop() {
 }
 `;
 
-  // 4. STANDALONE RGB (WS2812B & DENEYAP DAHİLİ LED)
-  const rgbCode = board === "deneyap" ? `/*
+  // 4. STANDALONE RGB (DENEYAP 1A v2 NEOPİXEL FIX & WS2812B)
+  const rgbCode = board === "deneyap_1a_v2" ? `/*
   ==============================================================
-  CİHAZ 4: DENEYAP KART DAHİLİ RGB LED (LEDR, LEDG, LEDB)
-  Harici hiçbir LED modülü bağlamanıza gerek yoktur!
+  CİHAZ 4: TÜBİTAK DENEYAP KART 1A v2 DAHİLİ WS2812B NEOPİXEL FIX
+  UYARI: Deneyap 1A v2'de dahili LED klasik 3 pinli analog/dijital değildir!
+  Dahili RGBLED pini üzerindeki WS2812B NeoPixel çipidir.
+  digitalWrite() kullanırsanız sinyal bozulur ve SARI yanıp kilitlenir!
+  ÇÖZÜM: ESP32 Core yerleşik neopixelWrite() kullanımıdır (Harici kütüphane gerektirmez).
   ==============================================================
 */
 #include <WiFi.h>
@@ -211,20 +229,18 @@ const char* ssid     = "WIFI_ADINIZ";
 const char* password = "WIFI_SIFRENIZ";
 const char* serverUrl = "${cleanUrl}";
 
-const int PIN_R = LEDR;
-const int PIN_G = LEDG;
-const int PIN_B = LEDB;
 unsigned long lastPoll = 0;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(PIN_R, OUTPUT); pinMode(PIN_G, OUTPUT); pinMode(PIN_B, OUTPUT);
-  digitalWrite(PIN_R, HIGH); digitalWrite(PIN_G, HIGH); digitalWrite(PIN_B, HIGH); // Kapalı
+
+  // Başlangıçta dahili NeoPixel'i sıfırla/kapat
+  neopixelWrite(RGBLED, 0, 0, 0);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
-  Serial.println("\\n[OK] Deneyap Dahili RGB LED Baglandi!");
+  Serial.println("\\n[OK] Deneyap 1A v2 Dahili NeoPixel LED Hazır!");
 }
 
 void loop() {
@@ -238,11 +254,12 @@ void loop() {
         deserializeJson(doc, https.getString());
         bool power = doc["rgb"]["power"] | false;
         if (power) {
-          digitalWrite(PIN_R, LOW); // Kırmızı
-          digitalWrite(PIN_G, HIGH);
-          digitalWrite(PIN_B, LOW); // Mor Ambiyans
+          // Mor / Magenta Renk: R=139, G=92, B=246 (İstenen renk kodları buraya yazılabilir)
+          neopixelWrite(RGBLED, 139, 92, 246);
+          Serial.println("Dahili NeoPixel: ACIK (Mor)");
         } else {
-          digitalWrite(PIN_R, HIGH); digitalWrite(PIN_G, HIGH); digitalWrite(PIN_B, HIGH);
+          neopixelWrite(RGBLED, 0, 0, 0); // Kapat
+          Serial.println("Dahili NeoPixel: KAPALI");
         }
       }
       https.end();
@@ -356,7 +373,107 @@ void loop() {
 }
 `;
 
-  // 6. FULL MQTT PROTOCOL
+  // 6. STANDALONE THERMOSTAT (>25°C RED LED, <=25°C BLUE LED)
+  const thermostatCode = `/*
+  ==============================================================
+  CİHAZ 6: ODA SICAKLIĞI > 25°C İSE KIRMIZI LED, DEĞİLSE MAVİ LED
+  Kart: ${board === "deneyap_1a_v2" ? "TÜBİTAK Deneyap Kart 1A v2" : "Standart ESP32 DevKit"}
+  Sensör: DHT11 (Breadboard üzerinde D2 / GPIO 4)
+  Çift LED Devresi:
+    - Kırmızı LED (+) -> 220Ω -> ${board === "esp32" ? "GPIO 16" : "D4"}
+    - Mavi LED (+)    -> 220Ω -> ${board === "esp32" ? "GPIO 17" : "D5"}
+    - Katotlar (-)    -> GND
+  ${board === "deneyap_1a_v2" ? "Deneyap 1A v2 Dahili LED: RGBLED pini (WS2812B NeoPixel Fix)" : ""}
+  Kütüphaneler: DHT sensor library, Adafruit Unified Sensor, ArduinoJson
+  ==============================================================
+*/
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+
+const char* ssid     = "WIFI_ADINIZ";
+const char* password = "WIFI_SIFRENIZ";
+const char* serverUrl = "${cleanUrl}";
+
+#define DHTPIN ${board === "esp32" ? "4" : "D2"}
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+const int PIN_RED_LED  = ${board === "esp32" ? "16" : "D4"}; // Kırmızı LED
+const int PIN_BLUE_LED = ${board === "esp32" ? "17" : "D5"}; // Mavi LED
+const float THRESHOLD_TEMP = 25.0; // 25 Derece Eşik Şartı
+
+unsigned long lastPoll = 0;
+unsigned long lastRead = 0;
+float currentTemp = 24.0;
+
+void applyLedState(bool isHot) {
+  if (isHot) {
+    // 25 DERECE ÜSTÜ: KIRMIZI LED AÇIK, MAVİ LED KAPALI
+    digitalWrite(PIN_RED_LED, HIGH);
+    digitalWrite(PIN_BLUE_LED, LOW);
+#if defined(RGBLED)
+    neopixelWrite(RGBLED, 255, 0, 0); // Deneyap 1A v2 Dahili NeoPixel: Parlak Kırmızı!
+#endif
+    Serial.println("[SICAK > 25°C] -> KIRMIZI LED DEVREDE!");
+  } else {
+    // 25 DERECE VE ALTI: KIRMIZI LED KAPALI, MAVİ LED AÇIK
+    digitalWrite(PIN_RED_LED, LOW);
+    digitalWrite(PIN_BLUE_LED, HIGH);
+#if defined(RGBLED)
+    neopixelWrite(RGBLED, 0, 0, 255); // Deneyap 1A v2 Dahili NeoPixel: Parlak Mavi!
+#endif
+    Serial.println("[SERİN <= 25°C] -> MAVİ LED DEVREDE!");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(PIN_RED_LED, OUTPUT);
+  pinMode(PIN_BLUE_LED, OUTPUT);
+
+  dht.begin();
+  applyLedState(false); // Başlangıçta güvenli durum (Mavi aktif)
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
+  Serial.println("\\n[OK] 25C Sicaklik & Cift LED Sistemi Wi-Fi Baglandi!");
+}
+
+void loop() {
+  // 1. Sensörden Sıcaklık Oku (Her 2 saniyede bir)
+  if (millis() - lastRead >= 2000) {
+    lastRead = millis();
+    float t = dht.readTemperature();
+    if (!isnan(t)) {
+      currentTemp = t;
+      bool isHot = currentTemp > THRESHOLD_TEMP;
+      applyLedState(isHot);
+      Serial.println("Oda Sicakligi: " + String(currentTemp, 1) + " C");
+    } else {
+      Serial.println("[HATA] DHT11 sensoru okunamadi, kablolari kontrol et!");
+    }
+  }
+
+  // 2. Vercel Bulut Paneline Telemetri Gönder
+  if (WiFi.status() == WL_CONNECTED && millis() - lastPoll >= 3000) {
+    lastPoll = millis();
+    WiFiClientSecure client; client.setInsecure();
+    HTTPClient https;
+    if (https.begin(client, String(serverUrl) + "/api/devices")) {
+      https.addHeader("Content-Type", "application/json");
+      String payload = "{\"thermostat\":{\"currentTemp\":" + String(currentTemp, 1) + "}}";
+      https.POST(payload);
+      https.end();
+    }
+  }
+}
+`;
+
+  // 7. FULL MQTT PROTOCOL
   const mqttCode = `/*
   ==============================================================
   HOCA İÇİN GERÇEK MQTT PUB/SUB PROTOKOLÜ (MİLLİSANİYE GECİKME)
@@ -418,11 +535,11 @@ void loop() {
 }
 `;
 
-  // 7. FULL 5-IN-1 HYBRID (WIFI + SERIAL)
+  // 8. FULL HYBRID (WIFI + SERIAL + SICAKLIK LED)
   const fullCode = `/*
   ==============================================================
-  5'LI HIBRIT IOT PLATFORMU (WI-FI REST API + WEB SERIAL USB)
-  Tüm 5 cihazı tek ESP32 veya Deneyap Kart ile kontrol eder!
+  TAM HİBRİT IOT PLATFORMU (WI-FI REST API + WEB SERIAL USB)
+  Deneyap Kart 1A v2 & ESP32 için 6 Cihaz + 25°C Sıcaklık LED
   ==============================================================
 */
 #include <WiFi.h>
@@ -430,26 +547,40 @@ void loop() {
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
+#include <DHT.h>
 
 const char* ssid     = "WIFI_ADINIZ";
 const char* password = "WIFI_SIFRENIZ";
 const char* serverUrl = "${cleanUrl}";
 
-const int PIN_LAMP   = ${board === "esp32" ? "2" : "D0"};
-const int PIN_FAN    = ${board === "esp32" ? "4" : "D1"};
-const int PIN_SERVO  = ${board === "esp32" ? "18" : "D8"};
-const int PIN_BUZZER = ${board === "esp32" ? "19" : "D9"};
-const int PIN_PUMP   = ${board === "esp32" ? "23" : "D10"};
-const int PIN_SOIL   = ${board === "esp32" ? "34" : "A0"};
+const int PIN_LAMP     = ${board === "esp32" ? "2" : "D0"};
+const int PIN_FAN      = ${board === "esp32" ? "4" : "D1"};
+const int PIN_SERVO    = ${board === "esp32" ? "18" : "D8"};
+const int PIN_BUZZER   = ${board === "esp32" ? "19" : "D9"};
+const int PIN_PUMP     = ${board === "esp32" ? "23" : "D10"};
+const int PIN_SOIL     = ${board === "esp32" ? "34" : "A0"};
+const int PIN_RED_LED  = ${board === "esp32" ? "16" : "D4"};
+const int PIN_BLUE_LED = ${board === "esp32" ? "17" : "D5"};
+
+#define DHTPIN ${board === "esp32" ? "4" : "D2"}
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
 
 Servo lockServo;
 unsigned long lastPoll = 0;
+unsigned long lastTempRead = 0;
+float currentTemp = 24.2;
 
 void setup() {
   Serial.begin(115200);
   pinMode(PIN_LAMP, OUTPUT);
   pinMode(PIN_PUMP, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(PIN_RED_LED, OUTPUT);
+  pinMode(PIN_BLUE_LED, OUTPUT);
+
+  dht.begin();
+  digitalWrite(PIN_BLUE_LED, HIGH); // Başlangıçta Mavi
 
   ledcSetup(1, 5000, 8);
   ledcAttachPin(PIN_FAN, 1);
@@ -461,11 +592,27 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  Serial.println("[ESP32] 5'li Sistem Hazir. Web Serial (115200) ve Wi-Fi aktif.");
+  Serial.println("[DENEYAP/ESP32] Tam Hibrit Sistem Hazir!");
 }
 
 void loop() {
-  // 1. USB Web Serial Komut Dinleme
+  // 1. Sıcaklık Kontrolü (>25°C -> Kırmızı, <=25°C -> Mavi)
+  if (millis() - lastTempRead >= 2000) {
+    lastTempRead = millis();
+    float t = dht.readTemperature();
+    if (!isnan(t)) {
+      currentTemp = t;
+      bool hot = currentTemp > 25.0;
+      digitalWrite(PIN_RED_LED, hot ? HIGH : LOW);
+      digitalWrite(PIN_BLUE_LED, hot ? LOW : HIGH);
+#if defined(RGBLED)
+      if (hot) neopixelWrite(RGBLED, 255, 0, 0);
+      else neopixelWrite(RGBLED, 0, 0, 255);
+#endif
+    }
+  }
+
+  // 2. USB Web Serial Komut Dinleme
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\\n');
     cmd.trim();
@@ -473,11 +620,11 @@ void loop() {
     if (cmd.startsWith("CMD:FAN:"))  ledcWrite(1, map(cmd.substring(8).toInt(), 0, 100, 0, 255));
     if (cmd.startsWith("CMD:LOCK:")) lockServo.write(cmd.substring(9).toInt() ? 90 : 0);
     if (cmd.startsWith("CMD:PUMP:")) digitalWrite(PIN_PUMP, cmd.substring(9).toInt() ? HIGH : LOW);
-    Serial.println("[ACK] Komut uygulandi: " + cmd);
+    Serial.println("[ACK] " + cmd);
   }
 
-  // 2. Wi-Fi REST Polling
-  if (WiFi.status() == WL_CONNECTED && millis() - lastPoll >= 1200) {
+  // 3. Wi-Fi REST Polling
+  if (WiFi.status() == WL_CONNECTED && millis() - lastPoll >= 1500) {
     lastPoll = millis();
     WiFiClientSecure client; client.setInsecure();
     HTTPClient https;
@@ -503,6 +650,7 @@ void loop() {
       case "lock": return lockCode;
       case "rgb": return rgbCode;
       case "irrigation": return irrigationCode;
+      case "thermostat": return thermostatCode;
       case "mqtt": return mqttCode;
       default: return fullCode;
     }
@@ -542,9 +690,17 @@ void loop() {
           </button>
         </div>
 
-        {/* Board Switcher (ESP32 vs Deneyap Kart) */}
+        {/* Board Switcher (ESP32 vs Deneyap Kart 1A v2) */}
         <div className="my-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex p-1 bg-neutral-900 rounded-xl border border-neutral-800 text-xs font-bold">
+            <button
+              onClick={() => setBoard("deneyap_1a_v2")}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                board === "deneyap_1a_v2" ? "bg-purple-600 text-white shadow" : "text-neutral-400"
+              }`}
+            >
+              TÜBİTAK Deneyap Kart 1A v2 (NeoPixel Fix)
+            </button>
             <button
               onClick={() => setBoard("esp32")}
               className={`px-3 py-1.5 rounded-lg transition-all ${
@@ -553,31 +709,26 @@ void loop() {
             >
               Standart ESP32 DevKit
             </button>
-            <button
-              onClick={() => setBoard("deneyap")}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
-                board === "deneyap" ? "bg-purple-500 text-white shadow" : "text-neutral-400"
-              }`}
-            >
-              TÜBİTAK Deneyap Kart 1A
-            </button>
           </div>
 
           <span className="text-xs text-neutral-400 font-mono">
-            {board === "deneyap" ? "💡 Deneyap Dahili LED Pinleri devrede" : "⚡ Standart GPIO Pinleri devrede"}
+            {board === "deneyap_1a_v2"
+              ? "💡 Deneyap 1A v2: Dahili WS2812B RGBLED ve D-pinleri aktif"
+              : "⚡ Standart ESP32: GPIO pinleri aktif"}
           </span>
         </div>
 
         {/* Device-Specific Code Tabs */}
         <div className="flex flex-wrap gap-1.5 mb-3 text-xs font-semibold">
           {[
-            { id: "lamp", label: "1. Sadece Lamba (Röle)", icon: Lightbulb },
-            { id: "fan", label: "2. Sadece Fan (PWM)", icon: Fan },
-            { id: "lock", label: "3. Sadece Kilit (Servo)", icon: Lock },
-            { id: "rgb", label: "4. RGB / Dahili LED", icon: Sparkles },
-            { id: "irrigation", label: "5. Sulama (Pompa+Nem)", icon: Droplets },
+            { id: "lamp", label: "1. Lamba (Röle)", icon: Lightbulb },
+            { id: "fan", label: "2. Fan (PWM)", icon: Fan },
+            { id: "lock", label: "3. Kilit (Servo)", icon: Lock },
+            { id: "rgb", label: "4. RGB / Dahili LED Fix", icon: Sparkles },
+            { id: "irrigation", label: "5. Sulama (Pompa)", icon: Droplets },
+            { id: "thermostat", label: "6. Sıcaklık & Çift LED (25°C)", icon: Thermometer },
             { id: "mqtt", label: "⚡ Gerçek MQTT Pub/Sub", icon: Radio },
-            { id: "full", label: "🌐 5'li Full Sistem + USB", icon: Cpu },
+            { id: "full", label: "🌐 Tam Hibrit + USB", icon: Cpu },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = codeType === tab.id;
@@ -615,16 +766,20 @@ void loop() {
         {/* Hardware Wiring Pinout Indicator */}
         <div className="mt-3 p-3 bg-neutral-900/90 rounded-xl border border-neutral-800 flex flex-wrap items-center justify-between text-xs font-mono">
           <span className="text-neutral-400">
-            Aktif Kart: <strong className="text-white">{board === "esp32" ? "ESP32 DevKit" : "Deneyap Kart 1A"}</strong>
+            Aktif Kart:{" "}
+            <strong className="text-white">
+              {board === "esp32" ? "ESP32 DevKit" : "Deneyap Kart 1A v2"}
+            </strong>
           </span>
           <span className="text-neutral-400">
             {codeType === "lamp" && `Bağlantı: Röle Sinyali -> ${board === "esp32" ? "GPIO 2" : "D0"}`}
             {codeType === "fan" && `Bağlantı: Fan PWM -> ${board === "esp32" ? "GPIO 4" : "D1"}`}
             {codeType === "lock" && `Bağlantı: Servo Sinyali -> ${board === "esp32" ? "GPIO 18" : "D8"}`}
-            {codeType === "rgb" && `Bağlantı: ${board === "deneyap" ? "Dahili LEDR / LEDG / LEDB" : "WS2812B GPIO 5"}`}
+            {codeType === "rgb" && `Bağlantı: ${board === "deneyap_1a_v2" ? "Dahili WS2812B (RGBLED pini)" : "WS2812B GPIO 5"}`}
             {codeType === "irrigation" && `Bağlantı: Pompa -> ${board === "esp32" ? "GPIO 23" : "D10"} | Nem -> ${board === "esp32" ? "GPIO 34" : "A0"}`}
+            {codeType === "thermostat" && `Bağlantı: DHT11 -> ${board === "esp32" ? "GPIO 4" : "D2"} | Kırmızı LED -> ${board === "esp32" ? "GPIO 16" : "D4"} | Mavi LED -> ${board === "esp32" ? "GPIO 17" : "D5"}`}
             {codeType === "mqtt" && `Protokol: broker.emqx.io:1883 (Topic: ders/rainz/commands)`}
-            {codeType === "full" && `5 Cihaz Hibrit: Hem Wi-Fi hem Web Serial USB`}
+            {codeType === "full" && `Tam Hibrit: 6 Cihaz + Web Serial USB + 25°C Sıcaklık LED`}
           </span>
         </div>
       </div>

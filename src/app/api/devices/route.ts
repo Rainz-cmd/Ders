@@ -10,7 +10,14 @@ export async function GET() {
     globalDevicesState.lamp.lastUpdated = Date.now();
   }
 
-  // Automation logic triggers
+  // Automatic Thermostat Logic (25°C Project)
+  if (globalDevicesState.thermostat.autoMode) {
+    const isHot = globalDevicesState.thermostat.currentTemp > globalDevicesState.thermostat.thresholdTemp;
+    globalDevicesState.thermostat.redLed = isHot;
+    globalDevicesState.thermostat.blueLed = !isHot;
+  }
+
+  // Automation triggers
   if (globalDevicesState.automations.tempAutoFan) {
     if (globalDevicesState.fan.currentTemp >= globalDevicesState.fan.targetTemp) {
       globalDevicesState.fan.power = true;
@@ -97,14 +104,40 @@ export async function POST(request: Request) {
       globalDevicesState.irrigation.lastUpdated = Date.now();
     }
 
-    // 6. Automations
+    // 6. Thermostat (25°C Projesi: Sıcaklık > 25°C ise Kırmızı, Değilse Mavi LED)
+    if (body.thermostat) {
+      if (typeof body.thermostat.currentTemp === "number") {
+        globalDevicesState.thermostat.currentTemp = body.thermostat.currentTemp;
+        // Also sync with fan currentTemp
+        globalDevicesState.fan.currentTemp = Math.round(body.thermostat.currentTemp);
+      }
+      if (typeof body.thermostat.thresholdTemp === "number") {
+        globalDevicesState.thermostat.thresholdTemp = body.thermostat.thresholdTemp;
+      }
+      if (typeof body.thermostat.autoMode === "boolean") {
+        globalDevicesState.thermostat.autoMode = body.thermostat.autoMode;
+      }
+      if (body.thermostat.sensorType) {
+        globalDevicesState.thermostat.sensorType = body.thermostat.sensorType;
+      }
+      if (body.thermostat.boardType) {
+        globalDevicesState.thermostat.boardType = body.thermostat.boardType;
+      }
+
+      // Re-evaluate Red/Blue state
+      const isHot = globalDevicesState.thermostat.currentTemp > globalDevicesState.thermostat.thresholdTemp;
+      globalDevicesState.thermostat.redLed = isHot;
+      globalDevicesState.thermostat.blueLed = !isHot;
+      globalDevicesState.thermostat.lastUpdated = Date.now();
+    }
+
+    // 7. Automations
     if (body.automations) {
       if (typeof body.automations.tempAutoFan === "boolean") globalDevicesState.automations.tempAutoFan = body.automations.tempAutoFan;
       if (typeof body.automations.soilAutoPump === "boolean") globalDevicesState.automations.soilAutoPump = body.automations.soilAutoPump;
       if (typeof body.automations.nightMode === "boolean") {
         globalDevicesState.automations.nightMode = body.automations.nightMode;
         if (body.automations.nightMode) {
-          // Night mode preset
           globalDevicesState.lamp.power = true;
           globalDevicesState.lamp.brightness = 20;
           globalDevicesState.lock.locked = true;

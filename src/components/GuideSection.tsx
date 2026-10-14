@@ -148,6 +148,34 @@ export const GuideSection: React.FC = () => {
                   <td className="p-2.5 text-emerald-400">A0</td>
                   <td className="p-2.5 text-neutral-400">Toprak Nem Değeri Okuma</td>
                 </tr>
+                <tr>
+                  <td className="p-2.5 font-bold text-amber-400">6. Sıcaklık Sensörü (DHT11)</td>
+                  <td className="p-2.5">DATA (Orta Bacak)</td>
+                  <td className="p-2.5 text-emerald-400">GPIO 4 (D4)</td>
+                  <td className="p-2.5 text-emerald-400">D2</td>
+                  <td className="p-2.5 text-neutral-400">Oda Sıcaklığı Ölçümü</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 font-bold text-red-500">Kırmızı LED (&gt;25°C İse)</td>
+                  <td className="p-2.5">Anot (+) [220Ω Direnç]</td>
+                  <td className="p-2.5 text-emerald-400">GPIO 16</td>
+                  <td className="p-2.5 text-emerald-400">D4</td>
+                  <td className="p-2.5 text-neutral-400">Sıcaklık 25°C Üzerindeyken Yanar</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 font-bold text-cyan-400">Mavi LED (&lt;=25°C İse)</td>
+                  <td className="p-2.5">Anot (+) [220Ω Direnç]</td>
+                  <td className="p-2.5 text-emerald-400">GPIO 17</td>
+                  <td className="p-2.5 text-emerald-400">D5</td>
+                  <td className="p-2.5 text-neutral-400">Sıcaklık 25°C ve Altındayken Yanar</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 font-bold text-purple-400">Deneyap 1A v2 Dahili LED</td>
+                  <td className="p-2.5">RGBLED (Dahili NeoPixel)</td>
+                  <td className="p-2.5 text-neutral-500">Yok</td>
+                  <td className="p-2.5 text-emerald-400">RGBLED</td>
+                  <td className="p-2.5 text-neutral-400">neopixelWrite(RGBLED, r, g, b) ile Parlak Renk</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -184,11 +212,13 @@ export const GuideSection: React.FC = () => {
             <p>Arduino IDE Kütüphane Yöneticisinden şu kütüphaneleri kurun:</p>
             <ul className="list-disc list-inside space-y-1 font-mono text-yellow-300">
               <li>ArduinoJson (Benoit Blanchon)</li>
+              <li>DHT sensor library (Adafruit)</li>
+              <li>Adafruit Unified Sensor</li>
               <li>ESP32Servo (Kevin Harrington)</li>
               <li>Adafruit NeoPixel (WS2812B için)</li>
             </ul>
             <p className="text-neutral-400 mt-2">
-              Masaüstündeki <code>esp32/esp32_all_in_one.ino</code> dosyasını açıp kartınıza yüklemeniz yeterlidir.
+              Masaüstündeki <code>esp32/deneyap_1a_v2_sicaklik_led.ino</code> dosyasını açıp kartınıza yüklemeniz yeterlidir.
             </p>
           </div>
         )}
@@ -196,6 +226,18 @@ export const GuideSection: React.FC = () => {
         {/* 5. SORUN GİDERME */}
         {activeTab === "troubleshoot" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30">
+              <span className="font-bold text-purple-300 block mb-1">Deneyap 1A v2 Dahili LED Neden Sarı Yanıyordu?</span>
+              <p className="text-neutral-300 leading-relaxed">
+                Deneyap 1A v2 üzerindeki dahili LED klasik 3 pinli analog/dijital LED değildir. <strong>RGBLED</strong> pinine bağlı adreslenebilir bir <strong>WS2812B NeoPixel</strong> çipidir! Klasik <code className="text-yellow-400 font-mono">digitalWrite</code> komutu verildiğinde veri hattı kilitlenir ve donanımsal olarak kehribar/sarı renkte sabit kalır. ESP32 çekirdeğinde yerleşik <code className="text-emerald-400 font-mono">neopixelWrite(RGBLED, r, g, b)</code> fonksiyonuyla sorun %100 çözülür.
+              </p>
+            </div>
+            <div className="p-4 rounded-xl bg-neutral-900/80 border border-neutral-800">
+              <span className="font-bold text-yellow-400 block mb-1">ESP32 ile Web Sitesi Aynı Ağda mı Olmalı?</span>
+              <p className="text-neutral-300 leading-relaxed">
+                <strong>KESİNLİKLE HAYIR!</strong> Web siteniz Vercel Global Cloud üzerinde çalışır. ESP32 veya Deneyap Kart herhangi bir internete (ev Wi-Fi, üniversite ağı veya telefon Hotspot) bağlı olduğu sürece dünyanın neresinde olursanız olun REST API veya MQTT üzerinden haberleşir.
+              </p>
+            </div>
             <div className="p-4 rounded-xl bg-neutral-900/80 border border-neutral-800">
               <span className="font-bold text-yellow-400 block mb-1">USB Portu Görünmüyor mu?</span>
               <p className="text-neutral-400">
