@@ -88,7 +88,24 @@ void loop() {
         deserializeJson(doc, https.getString());
         bool power = doc["power"] | false;
         digitalWrite(PIN_LAMP, power ? HIGH : LOW);
-        Serial.println("Lamba Durumu: " + String(power ? "ACIK" : "KAPALI"));
+
+        // Deneyap Kart 1A v2 Dahili RGB LED Renk & Parlaklık Kontrolü
+        const char* hexColor = doc["color"] | "#ffb703";
+        int brightness = doc["brightness"] | 100;
+
+        long rgbVal = strtol(hexColor[0] == '#' ? &hexColor[1] : hexColor, NULL, 16);
+        int r = (((rgbVal >> 16) & 0xFF) * brightness) / 100;
+        int g = (((rgbVal >> 8) & 0xFF) * brightness) / 100;
+        int b = ((rgbVal & 0xFF) * brightness) / 100;
+
+#if defined(RGBLED)
+        if (power) {
+          neopixelWrite(RGBLED, r, g, b); // Sitede seçilen renk anında Deneyap Dahili LED'e aktarılır
+        } else {
+          neopixelWrite(RGBLED, 0, 0, 0); // Kapalı
+        }
+#endif
+        Serial.printf("Lamba: %s | Renk: %s (R:%d G:%d B:%d)\\n", power ? "ACIK" : "KAPALI", hexColor, r, g, b);
       }
       https.end();
     }

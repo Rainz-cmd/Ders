@@ -90,12 +90,26 @@ void pollLamp() {
       DynamicJsonDocument doc(1024);
       deserializeJson(doc, json);
 
-      bool power = doc["power"];
+      bool power = doc["power"] | false;
+      digitalWrite(RELAY_PIN, power ? HIGH : LOW);
+
+      // Deneyap Kart 1A v2 Dahili WS2812B NeoPixel Renk Kontrolü:
+      const char* hexColor = doc["color"] | "#ffb703";
+      int brightness = doc["brightness"] | 100;
+
+      long rgbVal = strtol(hexColor[0] == '#' ? &hexColor[1] : hexColor, NULL, 16);
+      int r = (((rgbVal >> 16) & 0xFF) * brightness) / 100;
+      int g = (((rgbVal >> 8) & 0xFF) * brightness) / 100;
+      int b = ((rgbVal & 0xFF) * brightness) / 100;
+
+#if defined(RGBLED)
       if (power) {
-        digitalWrite(RELAY_PIN, HIGH);
+        neopixelWrite(RGBLED, r, g, b); // Sitede seçilen renk Deneyap dahili LED'e yansır
       } else {
-        digitalWrite(RELAY_PIN, LOW);
+        neopixelWrite(RGBLED, 0, 0, 0); // Kapat
       }
+#endif
+      Serial.printf("Lamba: %s | Renk: %s (R:%d G:%d B:%d) | Parlaklik: %%%d\n", power ? "ACIK" : "KAPALI", hexColor, r, g, b, brightness);
     }
     https.end();
   }
