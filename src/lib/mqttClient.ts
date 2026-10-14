@@ -43,7 +43,7 @@ class MqttManager {
         if (this.onStatusCb) this.onStatusCb(true);
 
         // Subscribe to ESP32 Telemetry and Status topics
-        this.client?.subscribe([MQTT_CONFIG.topicTelemetry, MQTT_CONFIG.topicStatus], { qos: 0 });
+        this.client?.subscribe([MQTT_CONFIG.topicTelemetry, MQTT_CONFIG.topicStatus, "ders/rainz/#"], { qos: 0 });
       });
 
       this.client.on("message", (topic, message) => {
@@ -80,8 +80,45 @@ class MqttManager {
     }
   }
 
-  public publishCommand(data: object): boolean {
-    return this.publish(MQTT_CONFIG.topicCommands, data);
+  public publishCommand(data: any): boolean {
+    // 1. Full JSON payload to primary commands topic
+    const success = this.publish(MQTT_CONFIG.topicCommands, data);
+
+    // 2. Multi-cast simple string subtopics for basic Arduino code handlers
+    try {
+      if (data.lamp) {
+        if (typeof data.lamp.power === "boolean") {
+          this.publish("ders/rainz/commands/lamp", data.lamp.power ? "1" : "0");
+        }
+        if (data.lamp.color) {
+          this.publish("ders/rainz/commands/color", data.lamp.color);
+        }
+      }
+
+      if (data.rgb) {
+        if (typeof data.rgb.power === "boolean") {
+          this.publish("ders/rainz/commands/rgb/power", data.rgb.power ? "1" : "0");
+        }
+        if (data.rgb.color) {
+          this.publish("ders/rainz/commands/rgb/color", data.rgb.color);
+          this.publish("ders/rainz/commands/color", data.rgb.color);
+        }
+      }
+
+      if (data.thermostat) {
+        if (typeof data.thermostat.currentTemp === "number") {
+          this.publish("ders/rainz/commands/temp", data.thermostat.currentTemp.toFixed(1));
+        }
+        if (typeof data.thermostat.redLed === "boolean") {
+          this.publish("ders/rainz/commands/redLed", data.thermostat.redLed ? "1" : "0");
+        }
+        if (typeof data.thermostat.blueLed === "boolean") {
+          this.publish("ders/rainz/commands/blueLed", data.thermostat.blueLed ? "1" : "0");
+        }
+      }
+    } catch {}
+
+    return success;
   }
 
   public disconnect() {

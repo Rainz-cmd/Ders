@@ -126,6 +126,21 @@ export default function HomePage() {
 
   const isUpdatingRef = useRef(false);
 
+  const addLog = useCallback(
+    (message: string, type: LogEntry["type"] = "info") => {
+      const now = new Date();
+      const timeStr = now.toTimeString().split(" ")[0];
+      const newEntry: LogEntry = {
+        id: `${Date.now()}-${Math.random()}`,
+        timestamp: timeStr,
+        message,
+        type,
+      };
+      setLogs((prev) => [newEntry, ...prev.slice(0, 49)]);
+    },
+    []
+  );
+
   // MQTT Connection Lifecycle
   useEffect(() => {
     mqttManager.connect(
@@ -142,26 +157,16 @@ export default function HomePage() {
           }));
         }
       },
-      (connected) => {
+      (connected, error) => {
         setMqttConnected(connected);
+        if (connected) {
+          addLog("MQTT Brokerı Bağlandı (broker.emqx.io) 🟢", "success");
+        } else if (error) {
+          addLog(`MQTT Bağlantı Durumu: ${error}`, "warn");
+        }
       }
     );
-  }, []);
-
-  const addLog = useCallback(
-    (message: string, type: LogEntry["type"] = "info") => {
-      const now = new Date();
-      const timeStr = now.toTimeString().split(" ")[0];
-      const newEntry: LogEntry = {
-        id: `${Date.now()}-${Math.random()}`,
-        timestamp: timeStr,
-        message,
-        type,
-      };
-      setLogs((prev) => [newEntry, ...prev.slice(0, 49)]);
-    },
-    []
-  );
+  }, [addLog]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
